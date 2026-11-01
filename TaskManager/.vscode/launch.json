@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TaskManager (Flutter)",
+      "request": "launch",
+      "type": "dart",
+      "cwd": "TaskManager",
+      "program": "lib/main.dart"
+    }
+  ]
+}
