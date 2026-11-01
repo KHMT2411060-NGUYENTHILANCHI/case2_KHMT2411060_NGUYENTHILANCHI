@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Kết nối MongoDB (Sửa MONGO_URI thành MONGODB_URI)
+// Kết nối MongoDB
 mongoose
   .connect(process.env.MONGODB_URI)
   .then(() => console.log('MongoDB connected'))
@@ -18,6 +18,9 @@ mongoose
 app.get('/', (req, res) => {
   res.json({ message: 'Task Manager API is running' });
 });
+
+// Route tài khoản (Nhóm A)
+app.use('/api/auth', require('./routes/auth.routes'));
 
 // Route chính cho Task
 app.use('/api/tasks', require('./routes/task.routes'));
