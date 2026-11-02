@@ -1,14 +1,16 @@
 const express = require('express');
-const Task = require('../models/task.model');
 const router = express.Router();
+const taskController = require('../controllers/taskController');
+const authMiddleware = require('../middleware/authMiddleware');
 
-router.get('/', async (req, res) => {
-  try {
-    const tasks = await Task.find();
-    res.status(200).json(tasks);
-  } catch (error) {
-    res.status(500).json({ message: 'Không thể lấy danh sách công việc' });
-  }
-});
+// Tất cả API công việc đều cần đăng nhập
+router.use(authMiddleware);
+
+router.get('/', taskController.getTasks);
+router.post('/', taskController.createTask);
+router.get('/:id', taskController.getTask);
+router.put('/:id', taskController.updateTask);
+router.patch('/:id/status', taskController.updateStatus);
+router.delete('/:id', taskController.deleteTask);
 
 module.exports = router;
