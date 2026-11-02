@@ -8,6 +8,7 @@ import '../services/task_api_service.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'task_create_screen.dart';
+import 'task_detail_screen.dart';
 
 class TaskListScreen extends StatefulWidget {
   const TaskListScreen({super.key});
@@ -106,6 +107,13 @@ class _TaskListScreenState extends State<TaskListScreen> {
       _searchController.clear();
     });
     _loadTasks();
+  }
+
+  Future<void> _openDetail(Task task) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task.id)),
+    );
+    if (mounted) _loadTasks(); // tải lại sau khi sửa, xóa hoặc đổi trạng thái
   }
 
   Future<void> _openCreate() async {
@@ -361,7 +369,14 @@ class _TaskListScreenState extends State<TaskListScreen> {
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
         itemCount: _tasks.length,
-        itemBuilder: (context, index) => _TaskCard(task: _tasks[index]),
+        itemBuilder: (context, index) {
+          final task = _tasks[index];
+          return InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _openDetail(task),
+            child: _TaskCard(task: task),
+          );
+        },
       ),
     );
   }

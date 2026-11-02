@@ -67,6 +67,19 @@ class TaskApiService {
         .toList();
   }
 
+  // GET /api/tasks/:id
+  Future<Task> getTask(String id) async {
+    final response = await http.get(
+      Uri.parse('$_tasksUrl/$id'),
+      headers: await _headers(),
+    );
+
+    if (response.statusCode != 200) {
+      throw _error(response, 'Không thể tải công việc');
+    }
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   // POST /api/tasks
   Future<Task> createTask({
     required String title,
@@ -94,5 +107,60 @@ class TaskApiService {
     }
 
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  // PUT /api/tasks/:id  (chỉ người tạo)
+  Future<Task> updateTask(
+      String id, {
+        required String title,
+        String description = '',
+        DateTime? startDate,
+        DateTime? dueDate,
+        required String priority,
+        required String status,
+      }) async {
+    final response = await http.put(
+      Uri.parse('$_tasksUrl/$id'),
+      headers: await _headers(),
+      body: jsonEncode({
+        'title': title,
+        'description': description,
+        'startDate': startDate?.toUtc().toIso8601String(),
+        'dueDate': dueDate?.toUtc().toIso8601String(),
+        'priority': priority,
+        'status': status,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw _error(response, 'Không thể cập nhật công việc');
+    }
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  // PATCH /api/tasks/:id/status  (người tạo hoặc người được giao)
+  Future<Task> updateStatus(String id, String status) async {
+    final response = await http.patch(
+      Uri.parse('$_tasksUrl/$id/status'),
+      headers: await _headers(),
+      body: jsonEncode({'status': status}),
+    );
+
+    if (response.statusCode != 200) {
+      throw _error(response, 'Không thể cập nhật trạng thái');
+    }
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  // DELETE /api/tasks/:id  (chỉ người tạo)
+  Future<void> deleteTask(String id) async {
+    final response = await http.delete(
+      Uri.parse('$_tasksUrl/$id'),
+      headers: await _headers(),
+    );
+
+    if (response.statusCode != 200) {
+      throw _error(response, 'Không thể xóa công việc');
+    }
   }
 }
