@@ -27,10 +27,14 @@ class _TaskListScreenState extends State<TaskListScreen> {
   bool _loading = true;
   String? _error;
 
+  // Những người phụ trách đã gặp trong các công việc (để làm bộ lọc)
+  final Map<String, String> _people = {};
+
   // ----- Bộ lọc -----
-  String? _scope; // null = tất cả | created | assigned
+  String? _scope; // null = tất cả | created | assigned | shared
   String? _statusFilter;
   String? _priorityFilter;
+  String? _assigneeFilter;
   String _sortBy = 'createdAt';
   String _order = 'desc';
 
@@ -38,6 +42,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
       _scope != null ||
           _statusFilter != null ||
           _priorityFilter != null ||
+          _assigneeFilter != null ||
           _searchController.text.trim().isNotEmpty;
 
   @override
@@ -65,12 +70,20 @@ class _TaskListScreenState extends State<TaskListScreen> {
         scope: _scope,
         status: _statusFilter,
         priority: _priorityFilter,
+        assigneeId: _assigneeFilter,
         q: _searchController.text,
         sortBy: _sortBy,
         order: _order,
       );
       if (!mounted || myRequest != _requestId) return;
-      setState(() => _tasks = tasks);
+      setState(() {
+        _tasks = tasks;
+        for (final t in tasks) {
+          for (final u in t.assignees) {
+            _people[u.id] = u.fullName;
+          }
+        }
+      });
     } on ApiException catch (e) {
       if (!mounted || myRequest != _requestId) return;
       if (e.statusCode == 401) {
@@ -104,6 +117,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
       _scope = null;
       _statusFilter = null;
       _priorityFilter = null;
+      _assigneeFilter = null;
       _searchController.clear();
     });
     _loadTasks();
@@ -113,7 +127,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task.id)),
     );
-    if (mounted) _loadTasks(); // tải lại sau khi sửa, xóa hoặc đổi trạng thái
+    if (mounted) _loadTasks(); // tải lại sau khi sửa, xóa, giao hoặc chia sẻ
   }
 
   Future<void> _openCreate() async {
@@ -168,6 +182,11 @@ class _TaskListScreenState extends State<TaskListScreen> {
   }
 
   Widget _buildFilterBar() {
+    final assigneeItems = <String?, String>{
+      null: 'Tất cả',
+      ..._people,
+    };
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       child: Column(
@@ -196,18 +215,19 @@ class _TaskListScreenState extends State<TaskListScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Phạm vi: tất cả / tôi tạo / được giao
+          // Phạm vi: tất cả / tôi tạo / được giao / được chia sẻ
           Wrap(
             spacing: 8,
             children: [
               _scopeChip('Tất cả', null),
               _scopeChip('Tôi tạo', 'created'),
               _scopeChip('Được giao cho tôi', 'assigned'),
+              _scopeChip('Được chia sẻ', 'shared'),
             ],
           ),
           const SizedBox(height: 8),
 
-          // Lọc trạng thái, ưu tiên, sắp xếp
+          // Lọc trạng thái, ưu tiên, người phụ trách, sắp xếp
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -238,6 +258,15 @@ class _TaskListScreenState extends State<TaskListScreen> {
                 },
                 onChanged: (v) {
                   setState(() => _priorityFilter = v);
+                  _loadTasks();
+                },
+              ),
+              _dropdown(
+                label: 'Người phụ trách',
+                value: _assigneeFilter,
+                items: assigneeItems,
+                onChanged: (v) {
+                  setState(() => _assigneeFilter = v);
                   _loadTasks();
                 },
               ),
@@ -297,8 +326,8 @@ class _TaskListScreenState extends State<TaskListScreen> {
     return SizedBox(
       width: 175,
       child: DropdownButtonFormField<String?>(
-        key: ValueKey('$label-$value'),
-        initialValue: value,
+        key: ValueKey('$label-$value-${items.length}'),
+        initialValue: items.containsKey(value) ? value : null,
         isExpanded: true,
         decoration: InputDecoration(
           labelText: label,
@@ -438,8 +467,25 @@ class _TaskCard extends StatelessWidget {
     }
   }
 
+  static String? roleLabel(String? role) {
+    switch (role) {
+      case 'owner':
+        return 'Tôi tạo';
+      case 'editor':
+        return 'Được chỉnh sửa';
+      case 'assignee':
+        return 'Được giao';
+      case 'viewer':
+        return 'Chỉ xem';
+      default:
+        return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final role = roleLabel(task.myRole);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: Padding(
@@ -476,10 +522,28 @@ class _TaskCard extends StatelessWidget {
                   label: 'Ưu tiên: ${priorityLabel(task.priority)}',
                   color: priorityColor(task.priority),
                 ),
+                if (role != null) _Badge(label: role, color: Colors.purple),
               ],
             ),
-            if (task.dueDate != null) ...[
+            if (task.primaryAssignee != null) ...[
               const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.star, size: 16, color: Colors.amber[700]),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Phụ trách: ${task.primaryAssignee!.fullName}'
+                          '${task.assignees.length > 1 ? ' (+${task.assignees.length - 1})' : ''}',
+                      style: TextStyle(color: Colors.grey[700]),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (task.dueDate != null) ...[
+              const SizedBox(height: 6),
               Row(
                 children: [
                   Icon(
