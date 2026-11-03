@@ -1,4 +1,4 @@
-/// Người dùng rút gọn (người tạo, người được giao)
+/// Người dùng rút gọn (người tạo, người được giao, người được chia sẻ)
 class UserSummary {
   final String id;
   final String fullName;
@@ -12,7 +12,7 @@ class UserSummary {
 
   factory UserSummary.fromJson(Map<String, dynamic> json) {
     return UserSummary(
-      id: (json['_id'] ?? '').toString(),
+      id: (json['_id'] ?? json['id'] ?? '').toString(),
       fullName: (json['fullName'] ?? '').toString(),
       email: (json['email'] ?? '').toString(),
     );
@@ -22,6 +22,30 @@ class UserSummary {
   static UserSummary? fromAny(dynamic value) {
     if (value is Map<String, dynamic>) return UserSummary.fromJson(value);
     return null;
+  }
+}
+
+/// Một bản ghi chia sẻ công việc
+class TaskShare {
+  final String id;
+  final UserSummary? user;
+  final String permission; // viewer | editor
+  final UserSummary? sharedBy;
+
+  TaskShare({
+    required this.id,
+    this.user,
+    this.permission = 'viewer',
+    this.sharedBy,
+  });
+
+  factory TaskShare.fromJson(Map<String, dynamic> json) {
+    return TaskShare(
+      id: (json['_id'] ?? '').toString(),
+      user: UserSummary.fromAny(json['userId']),
+      permission: (json['permission'] ?? 'viewer').toString(),
+      sharedBy: UserSummary.fromAny(json['sharedBy']),
+    );
   }
 }
 
@@ -38,6 +62,13 @@ class Task {
   final String status; // todo | in_progress | completed
   final DateTime? createdAt;
 
+  // Vai trò và quyền của người đang đăng nhập (do backend trả về)
+  final String? myRole; // owner | editor | assignee | viewer
+  final bool canEdit;
+  final bool canChangeStatus;
+  final bool canDelete;
+  final bool canManage;
+
   Task({
     required this.id,
     required this.title,
@@ -50,6 +81,11 @@ class Task {
     this.priority = 'medium',
     this.status = 'todo',
     this.createdAt,
+    this.myRole,
+    this.canEdit = false,
+    this.canChangeStatus = false,
+    this.canDelete = false,
+    this.canManage = false,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -57,6 +93,9 @@ class Task {
         v == null ? null : DateTime.tryParse(v.toString())?.toLocal();
 
     final rawAssignees = json['assigneeIds'];
+    final perms = json['permissions'] is Map<String, dynamic>
+        ? json['permissions'] as Map<String, dynamic>
+        : <String, dynamic>{};
 
     return Task(
       id: (json['_id'] ?? '').toString(),
@@ -75,6 +114,11 @@ class Task {
       priority: (json['priority'] ?? 'medium').toString(),
       status: (json['status'] ?? 'todo').toString(),
       createdAt: parseDate(json['createdAt']),
+      myRole: json['myRole']?.toString(),
+      canEdit: perms['canEdit'] == true,
+      canChangeStatus: perms['canChangeStatus'] == true,
+      canDelete: perms['canDelete'] == true,
+      canManage: perms['canManage'] == true,
     );
   }
 

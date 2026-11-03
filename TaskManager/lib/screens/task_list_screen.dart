@@ -203,6 +203,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
               _scopeChip('Tất cả', null),
               _scopeChip('Tôi tạo', 'created'),
               _scopeChip('Được giao cho tôi', 'assigned'),
+              _scopeChip('Được chia sẻ', 'shared'),
             ],
           ),
           const SizedBox(height: 8),

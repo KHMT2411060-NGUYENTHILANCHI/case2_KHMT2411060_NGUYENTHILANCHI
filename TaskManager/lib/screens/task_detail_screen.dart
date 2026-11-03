@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/task.dart';
 import '../services/auth_service.dart';
 import '../services/task_api_service.dart';
+import 'assign_task_screen.dart';
 import 'login_screen.dart';
 import 'task_edit_screen.dart';
 
@@ -19,7 +20,6 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   final _taskService = TaskApiService();
 
   Task? _task;
-  String? _myId;
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -36,8 +36,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     'high': 'Cao',
   };
 
-  bool get _isCreator =>
-      _task?.createdBy != null && _task!.createdBy!.id == _myId;
+  static const _roleLabels = {
+    'owner': 'Bạn là người tạo',
+    'editor': 'Bạn là người chỉnh sửa',
+    'assignee': 'Bạn được giao việc này',
+    'viewer': 'Bạn chỉ được xem',
+  };
 
   @override
   void initState() {
@@ -53,12 +57,8 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
     try {
       final task = await _taskService.getTask(widget.taskId);
-      final me = await AuthService().getMe();
       if (!mounted) return;
-      setState(() {
-        _task = task;
-        _myId = (me['_id'] ?? me['id'] ?? '').toString();
-      });
+      setState(() => _task = task);
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         await _goToLogin();
@@ -129,6 +129,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     }
   }
 
+  // ----- Giao việc -----
+  Future<void> _openAssign() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => AssignTaskScreen(task: _task!)),
+    );
+    if (changed == true) await _load();
+  }
+
   // ----- Xóa -----
   Future<void> _delete() async {
     final ok = await showDialog<bool>(
@@ -195,24 +203,24 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final canEdit = _task != null && _isCreator;
+    final task = _task;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Chi tiết công việc'),
         actions: [
-          if (canEdit) ...[
+          if (task != null && task.canEdit)
             IconButton(
               icon: const Icon(Icons.edit),
               tooltip: 'Sửa',
               onPressed: _busy ? null : _edit,
             ),
+          if (task != null && task.canDelete)
             IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               tooltip: 'Xóa',
               onPressed: _busy ? null : _delete,
             ),
-          ],
         ],
       ),
       body: _buildBody(),
@@ -264,9 +272,10 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Mức ưu tiên
+            // Mức ưu tiên và vai trò
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: [
                 Chip(
                   label: Text(
@@ -279,6 +288,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                     label: Text('Quá hạn'),
                     labelStyle: TextStyle(color: Colors.red),
                     side: BorderSide(color: Colors.red),
+                  ),
+                if (task.myRole != null)
+                  Chip(
+                    avatar: const Icon(Icons.badge, size: 18),
+                    label: Text(_roleLabels[task.myRole] ?? task.myRole!),
                   ),
               ],
             ),
@@ -303,8 +317,9 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           selected: task.status == e.key,
                           selectedColor:
                           _statusColor(e.key).withValues(alpha: 0.25),
-                          onSelected:
-                          _busy ? null : (_) => _changeStatus(e.key),
+                          onSelected: (_busy || !task.canChangeStatus)
+                              ? null
+                              : (_) => _changeStatus(e.key),
                         );
                       }).toList(),
                     ),
@@ -341,11 +356,26 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             ),
 
-            if (!_isCreator) ...[
+            // Nút giao việc (chỉ người tạo)
+            if (task.canManage) ...[
               const SizedBox(height: 12),
-              const Text(
-                'Chỉ người tạo mới được sửa hoặc xóa công việc này.',
-                style: TextStyle(color: Colors.grey),
+              OutlinedButton.icon(
+                onPressed: _busy ? null : _openAssign,
+                icon: const Icon(Icons.assignment_ind),
+                label: const Text('Giao việc'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(46),
+                ),
+              ),
+            ],
+
+            if (!task.canEdit) ...[
+              const SizedBox(height: 12),
+              Text(
+                task.canChangeStatus
+                    ? 'Bạn chỉ được đổi trạng thái, không được sửa hoặc xóa công việc này.'
+                    : 'Bạn chỉ có quyền xem công việc này.',
+                style: const TextStyle(color: Colors.grey),
               ),
             ],
           ],
