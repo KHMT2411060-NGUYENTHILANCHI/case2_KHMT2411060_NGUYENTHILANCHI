@@ -5,6 +5,7 @@ import '../services/auth_service.dart';
 import '../services/task_api_service.dart';
 import 'assign_task_screen.dart';
 import 'login_screen.dart';
+import 'share_task_screen.dart';
 import 'task_edit_screen.dart';
 
 class TaskDetailScreen extends StatefulWidget {
@@ -20,6 +21,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
   final _taskService = TaskApiService();
 
   Task? _task;
+  List<TaskShare> _shares = [];
   bool _loading = true;
   bool _busy = false;
   String? _error;
@@ -43,6 +45,11 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     'viewer': 'Bạn chỉ được xem',
   };
 
+  static const _permissionLabels = {
+    'viewer': 'Chỉ xem',
+    'editor': 'Chỉnh sửa',
+  };
+
   @override
   void initState() {
     super.initState();
@@ -57,8 +64,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
 
     try {
       final task = await _taskService.getTask(widget.taskId);
+
+      // Danh sách chia sẻ: nếu lỗi thì bỏ qua, không làm hỏng cả màn hình
+      List<TaskShare> shares = [];
+      try {
+        shares = await _taskService.getShares(widget.taskId);
+      } catch (_) {}
+
       if (!mounted) return;
-      setState(() => _task = task);
+      setState(() {
+        _task = task;
+        _shares = shares;
+      });
     } on ApiException catch (e) {
       if (e.statusCode == 401) {
         await _goToLogin();
@@ -137,6 +154,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (changed == true) await _load();
   }
 
+  // ----- Chia sẻ -----
+  Future<void> _openShare() async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => ShareTaskScreen(task: _task!)),
+    );
+    if (changed == true) await _load();
+  }
+
   // ----- Xóa -----
   Future<void> _delete() async {
     final ok = await showDialog<bool>(
@@ -199,6 +224,14 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       default:
         return Colors.orange;
     }
+  }
+
+  String _sharedText() {
+    if (_shares.isEmpty) return 'Chưa chia sẻ cho ai';
+    return _shares
+        .map((s) =>
+    '${s.user?.fullName ?? 'Không rõ'} (${_permissionLabels[s.permission] ?? s.permission})')
+        .join(', ');
   }
 
   @override
@@ -346,6 +379,7 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
                           ? 'Chưa giao cho ai'
                           : task.assignees.map((u) => u.fullName).join(', '),
                     ),
+                    _infoRow(Icons.share, 'Người được chia sẻ', _sharedText()),
                     _infoRow(Icons.event_available, 'Ngày bắt đầu',
                         _fmt(task.startDate)),
                     _infoRow(Icons.event, 'Hạn hoàn thành', _fmt(task.dueDate),
@@ -356,16 +390,33 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
               ),
             ),
 
-            // Nút giao việc (chỉ người tạo)
+            // Nút giao việc và chia sẻ (chỉ người tạo)
             if (task.canManage) ...[
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _openAssign,
-                icon: const Icon(Icons.assignment_ind),
-                label: const Text('Giao việc'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(46),
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _openAssign,
+                      icon: const Icon(Icons.assignment_ind),
+                      label: const Text('Giao việc'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _openShare,
+                      icon: const Icon(Icons.share),
+                      label: const Text('Chia sẻ'),
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(46),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
 
