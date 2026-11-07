@@ -25,6 +25,10 @@ app.use('/api/auth', require('./routes/auth.routes'));
 // Route chính cho Task
 app.use('/api/tasks', require('./routes/task.routes'));
 app.use('/api/users', require('./routes/user.routes'));
+
+// 👉 ĐÃ THÊM DÒNG NÀY: Route cho Notifications
+app.use('/api/notifications', require('./routes/notification.routes'));
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);

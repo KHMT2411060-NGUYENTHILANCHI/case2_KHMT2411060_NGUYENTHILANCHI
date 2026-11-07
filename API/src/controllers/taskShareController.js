@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const TaskShare = require('../models/taskShare.model');
 const { sameId, loadTask, handleError } = require('../utils/taskAccess');
+const { notify } = require('../services/notificationService');
 
 const PERMISSIONS = ['viewer', 'editor'];
 
@@ -56,6 +57,14 @@ exports.addShares = async (req, res) => {
       return res.status(400).json({ message: 'Có người dùng không tồn tại' });
     }
 
+    // Xác định ai mới được chia sẻ (để gửi thông báo)
+    const existing = await TaskShare.find({
+      taskId: task._id,
+      userId: { $in: targets },
+    }).select('userId');
+    const existingIds = new Set(existing.map((s) => String(s.userId)));
+    const newTargets = targets.filter((id) => !existingIds.has(id));
+
     // Đã chia sẻ rồi thì chỉ cập nhật quyền
     for (const userId of targets) {
       await TaskShare.findOneAndUpdate(
@@ -63,6 +72,18 @@ exports.addShares = async (req, res) => {
         { permission, sharedBy: req.user._id },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
+    }
+
+    if (newTargets.length > 0) {
+      const permText = permission === 'editor' ? 'chỉnh sửa' : 'chỉ xem';
+      await notify({
+        recipients: newTargets,
+        actor: req.user,
+        task,
+        type: 'task_shared',
+        title: 'Bạn được mời tham gia công việc',
+        message: `${req.user.fullName} đã chia sẻ công việc "${task.title}" cho bạn với quyền ${permText}`,
+      });
     }
 
     res.status(201).json(await listShares(task._id));
