@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const { POPULATE, loadTask, handleError } = require('../utils/taskAccess');
+const { notify } = require('../services/notificationService');
 
 async function assigneeView(task) {
   await task.populate(POPULATE);
@@ -42,17 +43,19 @@ exports.addAssignees = async (req, res) => {
       return res.status(400).json({ message: 'Có người dùng không tồn tại' });
     }
 
+    // Chỉ những người mới được giao thì mới nhận thông báo
     const current = new Set(task.assigneeIds.map(String));
-    uniqueIds.forEach((id) => {
-      if (!current.has(id)) task.assigneeIds.push(id);
-    });
+    const newIds = uniqueIds.filter((id) => !current.has(id));
+    newIds.forEach((id) => task.assigneeIds.push(id));
 
     if (primaryAssigneeId) {
-      const inList = task.assigneeIds.some((u) => String(u) === String(primaryAssigneeId));
+      const inList = task.assigneeIds.some(
+        (u) => String(u) === String(primaryAssigneeId)
+      );
       if (!inList) {
-        return res
-          .status(400)
-          .json({ message: 'Người phụ trách chính phải nằm trong danh sách được giao' });
+        return res.status(400).json({
+          message: 'Người phụ trách chính phải nằm trong danh sách được giao',
+        });
       }
       task.primaryAssigneeId = primaryAssigneeId;
     } else if (!task.primaryAssigneeId) {
@@ -60,6 +63,18 @@ exports.addAssignees = async (req, res) => {
     }
 
     await task.save();
+
+    if (newIds.length > 0) {
+      await notify({
+        recipients: newIds,
+        actor: req.user,
+        task,
+        type: 'task_assigned',
+        title: 'Bạn được giao công việc mới',
+        message: `${req.user.fullName} đã giao cho bạn công việc "${task.title}"`,
+      });
+    }
+
     res.json(await assigneeView(task));
   } catch (err) {
     handleError(err, res);

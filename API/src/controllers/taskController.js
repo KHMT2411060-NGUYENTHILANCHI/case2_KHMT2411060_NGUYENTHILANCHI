@@ -8,16 +8,55 @@ const {
   withAccess,
   handleError,
 } = require('../utils/taskAccess');
+const { notify, getInvolvedUserIds } = require('../services/notificationService');
+const { fmtDate } = require('../utils/emailTemplates');
 
 const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const timeOf = (d) => (d ? new Date(d).getTime() : null);
 
 function checkDates(startDate, dueDate) {
   if (startDate && dueDate && new Date(dueDate) < new Date(startDate)) {
     return 'Hạn hoàn thành phải sau ngày bắt đầu';
   }
   return null;
+}
+
+// Thông báo khi đổi hạn hoặc hoàn thành công việc.
+// `before` = { dueTime, status } chụp trước khi sửa. Gọi sau task.save(),
+// khi createdBy/assigneeIds vẫn là ObjectId (chưa populate).
+async function notifyChanges(task, actor, before) {
+  const dueChanged = timeOf(task.dueDate) !== before.dueTime;
+  const justCompleted = before.status !== 'completed' && task.status === 'completed';
+  if (!dueChanged && !justCompleted) return;
+
+  const recipients = await getInvolvedUserIds(task);
+
+  if (dueChanged) {
+    await notify({
+      recipients,
+      actor,
+      task,
+      type: 'due_date_changed',
+      title: 'Hạn hoàn thành đã thay đổi',
+      message: task.dueDate
+        ? `${actor.fullName} đã đổi hạn hoàn thành của "${task.title}" thành ${fmtDate(task.dueDate)}`
+        : `${actor.fullName} đã bỏ hạn hoàn thành của "${task.title}"`,
+    });
+  }
+
+  if (justCompleted) {
+    await notify({
+      recipients,
+      actor,
+      task,
+      type: 'task_completed',
+      title: 'Công việc đã hoàn thành',
+      message: `${actor.fullName} đã đánh dấu hoàn thành công việc "${task.title}"`,
+    });
+  }
 }
 
 // GET /api/tasks?scope=created|assigned|shared&status=&priority=&q=&assigneeId=&sortBy=&order=
@@ -131,6 +170,8 @@ exports.updateTask = async (req, res) => {
     if (!found) return;
     const { task, access } = found;
 
+    const before = { dueTime: timeOf(task.dueDate), status: task.status };
+
     const { title, description, startDate, dueDate, priority, status } = req.body;
     if (title !== undefined) {
       if (!title.trim()) {
@@ -148,6 +189,8 @@ exports.updateTask = async (req, res) => {
     if (dateError) return res.status(400).json({ message: dateError });
 
     await task.save();
+    await notifyChanges(task, req.user, before);
+
     await task.populate(POPULATE);
     res.json(withAccess(task, access));
   } catch (err) {
@@ -162,8 +205,12 @@ exports.updateStatus = async (req, res) => {
     if (!found) return;
     const { task, access } = found;
 
+    const before = { dueTime: timeOf(task.dueDate), status: task.status };
+
     task.status = req.body.status;
     await task.save();
+    await notifyChanges(task, req.user, before);
+
     await task.populate(POPULATE);
     res.json(withAccess(task, access));
   } catch (err) {
