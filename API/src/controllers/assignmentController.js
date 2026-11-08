@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const { POPULATE, loadTask, handleError } = require('../utils/taskAccess');
 const { notify } = require('../services/notificationService');
+const { logActivity } = require('../services/activityService');
 
 async function assigneeView(task) {
   await task.populate(POPULATE);
@@ -38,10 +39,11 @@ exports.addAssignees = async (req, res) => {
     }
 
     const uniqueIds = [...new Set(userIds.map(String))];
-    const count = await User.countDocuments({ _id: { $in: uniqueIds } });
-    if (count !== uniqueIds.length) {
+    const users = await User.find({ _id: { $in: uniqueIds } }).select('fullName');
+    if (users.length !== uniqueIds.length) {
       return res.status(400).json({ message: 'Có người dùng không tồn tại' });
     }
+    const nameOf = new Map(users.map((u) => [String(u._id), u.fullName]));
 
     // Chỉ những người mới được giao thì mới nhận thông báo
     const current = new Set(task.assigneeIds.map(String));
@@ -65,6 +67,13 @@ exports.addAssignees = async (req, res) => {
     await task.save();
 
     if (newIds.length > 0) {
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'assigned',
+        details: { users: newIds.map((id) => nameOf.get(id)) },
+      });
+
       await notify({
         recipients: newIds,
         actor: req.user,
@@ -92,8 +101,20 @@ exports.setPrimary = async (req, res) => {
     if (!task.assigneeIds.some((u) => String(u) === userId)) {
       return res.status(400).json({ message: 'Người này chưa được giao công việc' });
     }
-    task.primaryAssigneeId = userId;
-    await task.save();
+
+    if (String(task.primaryAssigneeId) !== userId) {
+      task.primaryAssigneeId = userId;
+      await task.save();
+
+      const user = await User.findById(userId).select('fullName');
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'primary_changed',
+        details: { user: user ? user.fullName : '' },
+      });
+    }
+
     res.json(await assigneeView(task));
   } catch (err) {
     handleError(err, res);
@@ -112,11 +133,21 @@ exports.removeAssignee = async (req, res) => {
       return res.status(404).json({ message: 'Người này chưa được giao công việc' });
     }
 
+    const user = await User.findById(userId).select('fullName');
+
     task.assigneeIds = task.assigneeIds.filter((u) => String(u) !== userId);
     if (String(task.primaryAssigneeId) === userId) {
       task.primaryAssigneeId = task.assigneeIds[0] || null;
     }
     await task.save();
+
+    await logActivity({
+      taskId: task._id,
+      userId: req.user._id,
+      action: 'unassigned',
+      details: { user: user ? user.fullName : '' },
+    });
+
     res.json(await assigneeView(task));
   } catch (err) {
     handleError(err, res);

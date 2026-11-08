@@ -3,6 +3,7 @@ const User = require('../models/user.model');
 const TaskShare = require('../models/taskShare.model');
 const { sameId, loadTask, handleError } = require('../utils/taskAccess');
 const { notify } = require('../services/notificationService');
+const { logActivity } = require('../services/activityService');
 
 const PERMISSIONS = ['viewer', 'editor'];
 
@@ -52,10 +53,11 @@ exports.addShares = async (req, res) => {
         .json({ message: 'Không thể chia sẻ công việc cho người tạo' });
     }
 
-    const count = await User.countDocuments({ _id: { $in: targets } });
-    if (count !== targets.length) {
+    const users = await User.find({ _id: { $in: targets } }).select('fullName');
+    if (users.length !== targets.length) {
       return res.status(400).json({ message: 'Có người dùng không tồn tại' });
     }
+    const nameOf = new Map(users.map((u) => [String(u._id), u.fullName]));
 
     // Xác định ai mới được chia sẻ (để gửi thông báo)
     const existing = await TaskShare.find({
@@ -75,6 +77,13 @@ exports.addShares = async (req, res) => {
     }
 
     if (newTargets.length > 0) {
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'shared',
+        details: { users: newTargets.map((id) => nameOf.get(id)), permission },
+      });
+
       const permText = permission === 'editor' ? 'chỉnh sửa' : 'chỉ xem';
       await notify({
         recipients: newTargets,
@@ -111,10 +120,21 @@ exports.updateShare = async (req, res) => {
       { _id: shareId, taskId: found.task._id },
       { permission },
       { new: true }
-    );
+    ).populate('userId', 'fullName');
     if (!share) {
       return res.status(404).json({ message: 'Không tìm thấy bản ghi chia sẻ' });
     }
+
+    await logActivity({
+      taskId: found.task._id,
+      userId: req.user._id,
+      action: 'share_updated',
+      details: {
+        user: share.userId ? share.userId.fullName : '',
+        permission,
+      },
+    });
+
     res.json(await listShares(found.task._id));
   } catch (err) {
     handleError(err, res);
@@ -135,10 +155,18 @@ exports.deleteShare = async (req, res) => {
     const share = await TaskShare.findOneAndDelete({
       _id: shareId,
       taskId: found.task._id,
-    });
+    }).populate('userId', 'fullName');
     if (!share) {
       return res.status(404).json({ message: 'Không tìm thấy bản ghi chia sẻ' });
     }
+
+    await logActivity({
+      taskId: found.task._id,
+      userId: req.user._id,
+      action: 'share_revoked',
+      details: { user: share.userId ? share.userId.fullName : '' },
+    });
+
     res.json(await listShares(found.task._id));
   } catch (err) {
     handleError(err, res);

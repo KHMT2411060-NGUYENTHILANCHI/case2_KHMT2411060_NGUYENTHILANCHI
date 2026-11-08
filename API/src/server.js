@@ -28,7 +28,7 @@ app.use('/api/users', require('./routes/user.routes'));
 
 // 👉 ĐÃ THÊM DÒNG NÀY: Route cho Notifications
 app.use('/api/notifications', require('./routes/notification.routes'));
-
+app.use('/api/statistics', require('./routes/statistics.routes'));
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
