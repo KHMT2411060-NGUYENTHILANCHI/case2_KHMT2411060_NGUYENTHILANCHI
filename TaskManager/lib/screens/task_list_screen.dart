@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../models/task.dart';
 import '../services/auth_service.dart';
+import '../services/notification_service.dart';
 import '../services/task_api_service.dart';
 import 'login_screen.dart';
+import 'notification_screen.dart';
 import 'profile_screen.dart';
 import 'task_create_screen.dart';
 import 'task_detail_screen.dart';
@@ -19,13 +21,16 @@ class TaskListScreen extends StatefulWidget {
 
 class _TaskListScreenState extends State<TaskListScreen> {
   final _taskService = TaskApiService();
+  final _notificationService = NotificationService();
   final _searchController = TextEditingController();
   Timer? _debounce;
+  Timer? _pollTimer;
   int _requestId = 0; // bỏ qua kết quả của request cũ
 
   List<Task> _tasks = [];
   bool _loading = true;
   String? _error;
+  int _unread = 0; // số thông báo chưa đọc
 
   // Những người phụ trách đã gặp trong các công việc (để làm bộ lọc)
   final Map<String, String> _people = {};
@@ -49,13 +54,29 @@ class _TaskListScreenState extends State<TaskListScreen> {
   void initState() {
     super.initState();
     _loadTasks();
+    _loadUnread();
+    // Cập nhật số thông báo chưa đọc mỗi 30 giây
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 30),
+          (_) => _loadUnread(),
+    );
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _pollTimer?.cancel();
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadUnread() async {
+    try {
+      final count = await _notificationService.getUnreadCount();
+      if (mounted) setState(() => _unread = count);
+    } catch (_) {
+      // Lỗi tải số thông báo không cần báo cho người dùng
+    }
   }
 
   Future<void> _loadTasks() async {
@@ -106,6 +127,11 @@ class _TaskListScreenState extends State<TaskListScreen> {
     }
   }
 
+  void _reloadAll() {
+    _loadTasks();
+    _loadUnread();
+  }
+
   void _onSearchChanged(String _) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 400), _loadTasks);
@@ -127,7 +153,14 @@ class _TaskListScreenState extends State<TaskListScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => TaskDetailScreen(taskId: task.id)),
     );
-    if (mounted) _loadTasks(); // tải lại sau khi sửa, xóa, giao hoặc chia sẻ
+    if (mounted) _reloadAll(); // tải lại sau khi sửa, xóa, giao hoặc chia sẻ
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const NotificationScreen()),
+    );
+    if (mounted) _reloadAll();
   }
 
   Future<void> _openCreate() async {
@@ -155,7 +188,16 @@ class _TaskListScreenState extends State<TaskListScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Tải lại',
-            onPressed: _loadTasks,
+            onPressed: _reloadAll,
+          ),
+          IconButton(
+            tooltip: 'Thông báo',
+            onPressed: _openNotifications,
+            icon: Badge(
+              isLabelVisible: _unread > 0,
+              label: Text(_unread > 99 ? '99+' : '$_unread'),
+              child: const Icon(Icons.notifications),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.person),
@@ -379,7 +421,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
 
     if (_tasks.isEmpty) {
       return RefreshIndicator(
-        onRefresh: _loadTasks,
+        onRefresh: () async => _reloadAll(),
         child: ListView(
           children: [
             const SizedBox(height: 120),
@@ -394,7 +436,7 @@ class _TaskListScreenState extends State<TaskListScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: _loadTasks,
+      onRefresh: () async => _reloadAll(),
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
         itemCount: _tasks.length,
