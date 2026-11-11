@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import 'activity_screen.dart';
 import '../models/task.dart';
 import '../services/auth_service.dart';
 import '../services/task_api_service.dart';
@@ -154,6 +154,18 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
     if (changed == true) await _load();
   }
 
+  // ----- Lịch sử hoạt động -----
+  void _openActivities() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ActivityScreen(
+          taskId: _task!.id,
+          taskTitle: _task!.title,
+        ),
+      ),
+    );
+  }
+
   // ----- Chia sẻ -----
   Future<void> _openShare() async {
     final changed = await Navigator.of(context).push<bool>(
@@ -242,6 +254,12 @@ class _TaskDetailScreenState extends State<TaskDetailScreen> {
       appBar: AppBar(
         title: const Text('Chi tiết công việc'),
         actions: [
+          if (task != null)
+            IconButton(
+              icon: const Icon(Icons.history),
+              tooltip: 'Lịch sử hoạt động',
+              onPressed: _openActivities,
+            ),
           if (task != null && task.canEdit)
             IconButton(
               icon: const Icon(Icons.edit),

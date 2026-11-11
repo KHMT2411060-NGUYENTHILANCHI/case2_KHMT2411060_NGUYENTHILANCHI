@@ -9,6 +9,7 @@ import '../services/task_api_service.dart';
 import 'login_screen.dart';
 import 'notification_screen.dart';
 import 'profile_screen.dart';
+import 'statistics_screen.dart';
 import 'task_create_screen.dart';
 import 'task_detail_screen.dart';
 
@@ -156,6 +157,13 @@ class _TaskListScreenState extends State<TaskListScreen> {
     if (mounted) _reloadAll(); // tải lại sau khi sửa, xóa, giao hoặc chia sẻ
   }
 
+  Future<void> _openStatistics() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const StatisticsScreen()),
+    );
+    if (mounted) _reloadAll();
+  }
+
   Future<void> _openNotifications() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const NotificationScreen()),
@@ -189,6 +197,11 @@ class _TaskListScreenState extends State<TaskListScreen> {
             icon: const Icon(Icons.refresh),
             tooltip: 'Tải lại',
             onPressed: _reloadAll,
+          ),
+          IconButton(
+            icon: const Icon(Icons.bar_chart),
+            tooltip: 'Thống kê',
+            onPressed: _openStatistics,
           ),
           IconButton(
             tooltip: 'Thông báo',
