@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const Task = require('../models/task.model');
 const TaskShare = require('../models/taskShare.model');
+const TaskActivity = require('../models/taskActivity.model');
+const Notification = require('../models/notification.model');
 const {
   POPULATE,
   buildAccess,
@@ -9,9 +11,11 @@ const {
   handleError,
 } = require('../utils/taskAccess');
 const { notify, getInvolvedUserIds } = require('../services/notificationService');
+const { logActivity } = require('../services/activityService');
 const { fmtDate } = require('../utils/emailTemplates');
 
 const PRIORITY_RANK = { high: 3, medium: 2, low: 1 };
+const TRACKED_FIELDS = ['title', 'description', 'startDate', 'dueDate', 'priority'];
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -24,11 +28,27 @@ function checkDates(startDate, dueDate) {
   return null;
 }
 
+// Chụp lại các trường quan trọng trước khi sửa để so sánh
+function snapshot(task) {
+  return {
+    title: task.title,
+    description: task.description,
+    startDate: timeOf(task.startDate),
+    dueDate: timeOf(task.dueDate),
+    priority: task.priority,
+    status: task.status,
+  };
+}
+
+// Danh sách trường (không gồm status) đã thay đổi
+function changedFields(before, task) {
+  const now = snapshot(task);
+  return TRACKED_FIELDS.filter((key) => before[key] !== now[key]);
+}
+
 // Thông báo khi đổi hạn hoặc hoàn thành công việc.
-// `before` = { dueTime, status } chụp trước khi sửa. Gọi sau task.save(),
-// khi createdBy/assigneeIds vẫn là ObjectId (chưa populate).
 async function notifyChanges(task, actor, before) {
-  const dueChanged = timeOf(task.dueDate) !== before.dueTime;
+  const dueChanged = timeOf(task.dueDate) !== before.dueDate;
   const justCompleted = before.status !== 'completed' && task.status === 'completed';
   if (!dueChanged && !justCompleted) return;
 
@@ -143,6 +163,14 @@ exports.createTask = async (req, res) => {
       status,
       createdBy: req.user._id,
     });
+
+    await logActivity({
+      taskId: task._id,
+      userId: req.user._id,
+      action: 'created',
+      details: { title: task.title },
+    });
+
     const access = buildAccess(task, req.user._id, null);
     await task.populate(POPULATE);
     res.status(201).json(withAccess(task, access));
@@ -163,6 +191,22 @@ exports.getTask = async (req, res) => {
   }
 };
 
+// GET /api/tasks/:id/activities   -> lịch sử hoạt động
+exports.getActivities = async (req, res) => {
+  try {
+    const found = await loadTask(req, res, 'canView');
+    if (!found) return;
+
+    const list = await TaskActivity.find({ taskId: found.task._id })
+      .populate('userId', 'fullName email')
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json(list);
+  } catch (err) {
+    handleError(err, res);
+  }
+};
+
 // PUT /api/tasks/:id  (người tạo hoặc editor)
 exports.updateTask = async (req, res) => {
   try {
@@ -170,7 +214,7 @@ exports.updateTask = async (req, res) => {
     if (!found) return;
     const { task, access } = found;
 
-    const before = { dueTime: timeOf(task.dueDate), status: task.status };
+    const before = snapshot(task);
 
     const { title, description, startDate, dueDate, priority, status } = req.body;
     if (title !== undefined) {
@@ -189,6 +233,25 @@ exports.updateTask = async (req, res) => {
     if (dateError) return res.status(400).json({ message: dateError });
 
     await task.save();
+
+    const fields = changedFields(before, task);
+    if (fields.length > 0) {
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'updated',
+        details: { fields },
+      });
+    }
+    if (before.status !== task.status) {
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'status_changed',
+        details: { from: before.status, to: task.status },
+      });
+    }
+
     await notifyChanges(task, req.user, before);
 
     await task.populate(POPULATE);
@@ -205,10 +268,20 @@ exports.updateStatus = async (req, res) => {
     if (!found) return;
     const { task, access } = found;
 
-    const before = { dueTime: timeOf(task.dueDate), status: task.status };
+    const before = snapshot(task);
 
     task.status = req.body.status;
     await task.save();
+
+    if (before.status !== task.status) {
+      await logActivity({
+        taskId: task._id,
+        userId: req.user._id,
+        action: 'status_changed',
+        details: { from: before.status, to: task.status },
+      });
+    }
+
     await notifyChanges(task, req.user, before);
 
     await task.populate(POPULATE);
@@ -224,7 +297,12 @@ exports.deleteTask = async (req, res) => {
     const found = await loadTask(req, res, 'canDelete');
     if (!found) return;
 
-    await TaskShare.deleteMany({ taskId: found.task._id });
+    const taskId = found.task._id;
+    await Promise.all([
+      TaskShare.deleteMany({ taskId }),
+      TaskActivity.deleteMany({ taskId }),
+      Notification.deleteMany({ taskId }),
+    ]);
     await found.task.deleteOne();
     res.json({ message: 'Đã xóa công việc' });
   } catch (err) {

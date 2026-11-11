@@ -16,6 +16,9 @@ router.put('/:id', taskController.updateTask);
 router.patch('/:id/status', taskController.updateStatus);
 router.delete('/:id', taskController.deleteTask);
 
+// Lịch sử hoạt động
+router.get('/:id/activities', taskController.getActivities);
+
 // Giao việc
 router.get('/:id/assignees', assignment.getAssignees);
 router.post('/:id/assignees', assignment.addAssignees);
